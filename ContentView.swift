@@ -10,11 +10,12 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var ramDiskManager: RamDiskManager
     @State private var showCreateSheet = false
+    @State private var showSettingsSheet = false
     
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HeaderView(showCreateSheet: $showCreateSheet)
+            HeaderView(showCreateSheet: $showCreateSheet, showSettingsSheet: $showSettingsSheet)
             
             Divider()
             
@@ -22,15 +23,34 @@ struct ContentView: View {
             StatusBarView()
             
             // Main content
-            if ramDiskManager.ramDisks.isEmpty {
+            if ramDiskManager.ramDisks.isEmpty && ramDiskManager.autoCreateConfigs.isEmpty {
                 EmptyStateView(showCreateSheet: $showCreateSheet)
             } else {
-                RamDiskListView()
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Active RAM Disks
+                        if !ramDiskManager.ramDisks.isEmpty {
+                            RamDiskListView()
+                        }
+                        
+                        // Auto-create configs (not currently mounted)
+                        let unmountedConfigs = ramDiskManager.autoCreateConfigs.filter { config in
+                            !ramDiskManager.ramDisks.contains { $0.volumeName == config.name }
+                        }
+                        if !unmountedConfigs.isEmpty {
+                            AutoCreateListView(configs: unmountedConfigs)
+                        }
+                    }
+                    .padding()
+                }
             }
         }
         .background(Color(NSColor.windowBackgroundColor))
         .sheet(isPresented: $showCreateSheet) {
             CreateRamDiskSheet(isPresented: $showCreateSheet)
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            SettingsSheet(isPresented: $showSettingsSheet)
         }
     }
 }
@@ -39,6 +59,7 @@ struct ContentView: View {
 struct HeaderView: View {
     @EnvironmentObject var ramDiskManager: RamDiskManager
     @Binding var showCreateSheet: Bool
+    @Binding var showSettingsSheet: Bool
     
     var body: some View {
         HStack {
@@ -53,6 +74,13 @@ struct HeaderView: View {
             Spacer()
             
             HStack(spacing: 12) {
+                Button(action: { showSettingsSheet = true }) {
+                    Image(systemName: "gearshape")
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .help("Settings")
+                
                 Button(action: {
                     Task {
                         await ramDiskManager.refreshRamDisks()
@@ -176,13 +204,116 @@ struct RamDiskListView: View {
     @EnvironmentObject var ramDiskManager: RamDiskManager
     
     var body: some View {
-        ScrollView {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Active RAM Disks")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
             LazyVStack(spacing: 12) {
                 ForEach(ramDiskManager.ramDisks) { disk in
                     RamDiskRowView(ramDisk: disk)
                 }
             }
-            .padding()
+        }
+    }
+}
+
+// MARK: - Auto Create List View
+struct AutoCreateListView: View {
+    @EnvironmentObject var ramDiskManager: RamDiskManager
+    let configs: [AutoCreateConfig]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Auto-Create at Login (Not Mounted)")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            LazyVStack(spacing: 12) {
+                ForEach(configs) { config in
+                    AutoCreateRowView(config: config)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Auto Create Row View
+struct AutoCreateRowView: View {
+    @EnvironmentObject var ramDiskManager: RamDiskManager
+    let config: AutoCreateConfig
+    @State private var isHovering = false
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // Disk icon
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 50, height: 50)
+                
+                Image(systemName: "memorychip")
+                    .font(.title2)
+                    .foregroundColor(.gray)
+            }
+            
+            // Config info
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(config.name)
+                        .font(.headline)
+                    
+                    Text("(Not mounted)")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+                
+                Label(config.formattedSize, systemImage: "internaldrive")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            // Actions
+            HStack(spacing: 8) {
+                Button(action: {
+                    Task {
+                        await ramDiskManager.createRamDisk(name: config.name, sizeMB: config.sizeMB)
+                    }
+                }) {
+                    Image(systemName: "play.fill")
+                        .font(.title3)
+                        .foregroundColor(.green)
+                }
+                .buttonStyle(.borderless)
+                .help("Create now")
+                
+                Button(action: {
+                    ramDiskManager.removeAutoCreateConfig(name: config.name)
+                }) {
+                    Image(systemName: "trash")
+                        .font(.title3)
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove from auto-create")
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor))
+                .shadow(color: .black.opacity(isHovering ? 0.1 : 0.05), radius: isHovering ? 8 : 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+        )
+        .scaleEffect(isHovering ? 1.01 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: isHovering)
+        .onHover { hovering in
+            isHovering = hovering
         }
     }
 }
@@ -193,6 +324,14 @@ struct RamDiskRowView: View {
     let ramDisk: RamDisk
     @State private var showDeleteConfirmation = false
     @State private var isHovering = false
+    
+    private var isAutoCreate: Bool {
+        ramDiskManager.isAutoCreate(name: ramDisk.volumeName)
+    }
+    
+    private var diskSizeMB: Int {
+        Int(ramDisk.size / (1024 * 1024))
+    }
     
     var body: some View {
         HStack(spacing: 16) {
@@ -213,8 +352,17 @@ struct RamDiskRowView: View {
             
             // Disk info
             VStack(alignment: .leading, spacing: 4) {
-                Text(ramDisk.volumeName)
-                    .font(.headline)
+                HStack {
+                    Text(ramDisk.volumeName)
+                        .font(.headline)
+                    
+                    if isAutoCreate {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                            .help("Creates at login")
+                    }
+                }
                 
                 HStack(spacing: 16) {
                     Label(ramDisk.formattedSize, systemImage: "internaldrive")
@@ -237,6 +385,15 @@ struct RamDiskRowView: View {
             
             // Actions
             HStack(spacing: 8) {
+                // Auto-create toggle
+                Button(action: toggleAutoCreate) {
+                    Image(systemName: isAutoCreate ? "clock.badge.checkmark.fill" : "clock.badge.questionmark")
+                        .font(.title3)
+                        .foregroundColor(isAutoCreate ? .green : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(isAutoCreate ? "Remove from auto-create" : "Create at login")
+                
                 Button(action: openInFinder) {
                     Image(systemName: "folder")
                         .font(.title3)
@@ -285,6 +442,128 @@ struct RamDiskRowView: View {
         guard !ramDisk.mountPoint.isEmpty else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: ramDisk.mountPoint))
     }
+    
+    private func toggleAutoCreate() {
+        if isAutoCreate {
+            ramDiskManager.removeAutoCreateConfig(name: ramDisk.volumeName)
+        } else {
+            ramDiskManager.addAutoCreateConfig(name: ramDisk.volumeName, sizeMB: diskSizeMB)
+        }
+    }
+}
+
+// MARK: - Settings Sheet
+struct SettingsSheet: View {
+    @EnvironmentObject var ramDiskManager: RamDiskManager
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Settings")
+                    .font(.title2.bold())
+                Spacer()
+                Button(action: { isPresented = false }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+            .padding()
+            
+            Divider()
+            
+            // Settings content
+            VStack(alignment: .leading, spacing: 20) {
+                // Launch at login
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: Binding(
+                        get: { ramDiskManager.launchAtLogin },
+                        set: { ramDiskManager.setLaunchAtLogin($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Launch at Login")
+                                .font(.headline)
+                            Text("Start jRamDisk automatically when you log in")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                }
+                
+                Divider()
+                
+                // Auto-create disks
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Auto-Create RAM Disks")
+                        .font(.headline)
+                    Text("These RAM disks will be created automatically when the app starts")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    if ramDiskManager.autoCreateConfigs.isEmpty {
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 8) {
+                                Image(systemName: "clock.badge.questionmark")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                Text("No auto-create disks configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text("Click the clock icon on a RAM disk to enable")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            Spacer()
+                        }
+                    } else {
+                        ForEach(ramDiskManager.autoCreateConfigs) { config in
+                            HStack {
+                                Image(systemName: "memorychip.fill")
+                                    .foregroundColor(.blue)
+                                Text(config.name)
+                                    .font(.body)
+                                Spacer()
+                                Text(config.formattedSize)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Button(action: {
+                                    ramDiskManager.removeAutoCreateConfig(name: config.name)
+                                }) {
+                                    Image(systemName: "minus.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding()
+            
+            Divider()
+            
+            // Close button
+            HStack {
+                Spacer()
+                Button("Done") {
+                    isPresented = false
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 400, height: 400)
+    }
 }
 
 // MARK: - Create RAM Disk Sheet
@@ -294,6 +573,7 @@ struct CreateRamDiskSheet: View {
     
     @State private var diskName = "RamDisk"
     @State private var sliderValue: Double = 9 // log2(512) = 9
+    @State private var autoCreateAtLogin = false
     
     // Slider range: 64 MB (2^6 * 64 = 64) to 8192 MB (2^13 = 8192)
     // Using log scale: 6 to 13 maps to 64 MB to 8 GB
@@ -380,6 +660,18 @@ struct CreateRamDiskSheet: View {
                         .foregroundColor(.secondary)
                 }
                 
+                // Auto-create option
+                Toggle(isOn: $autoCreateAtLogin) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Create at Login")
+                            .font(.subheadline)
+                        Text("Automatically create this RAM disk when jRamDisk starts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                
                 // Info box
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "info.circle.fill")
@@ -440,6 +732,9 @@ struct CreateRamDiskSheet: View {
         Task {
             let success = await ramDiskManager.createRamDisk(name: name, sizeMB: selectedSizeMB)
             if success {
+                if autoCreateAtLogin {
+                    ramDiskManager.addAutoCreateConfig(name: name, sizeMB: selectedSizeMB)
+                }
                 isPresented = false
             }
         }

@@ -128,15 +128,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         statusMenu.addItem(NSMenuItem.separator())
         
+        // Launch at login toggle
+        let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchAtLoginItem.target = self
+        launchAtLoginItem.state = sharedRamDiskManager.launchAtLogin ? .on : .off
+        statusMenu.addItem(launchAtLoginItem)
+        
         // Refresh
         let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshDisks), keyEquivalent: "r")
         refreshItem.target = self
         statusMenu.addItem(refreshItem)
         
+        statusMenu.addItem(NSMenuItem.separator())
+        
         // Quit
         let quitItem = NSMenuItem(title: "Quit jRamDisk", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         statusMenu.addItem(quitItem)
+    }
+    
+    @MainActor
+    @objc func toggleLaunchAtLogin() {
+        sharedRamDiskManager.setLaunchAtLogin(!sharedRamDiskManager.launchAtLogin)
+        rebuildMenu()
     }
     
     @MainActor

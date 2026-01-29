@@ -7,6 +7,21 @@
 
 import Foundation
 import Combine
+import ServiceManagement
+
+// Configuration for auto-creating RAM disks at login
+struct AutoCreateConfig: Codable, Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let sizeMB: Int
+    
+    var formattedSize: String {
+        if sizeMB >= 1024 {
+            return "\(sizeMB / 1024) GB"
+        }
+        return "\(sizeMB) MB"
+    }
+}
 
 struct RamDisk: Identifiable, Equatable {
     let id = UUID()
@@ -26,11 +41,14 @@ class RamDiskManager: ObservableObject {
     @MainActor @Published var isLoading = false
     @MainActor @Published var errorMessage: String?
     @MainActor @Published var successMessage: String?
+    @MainActor @Published var autoCreateConfigs: [AutoCreateConfig] = []
+    @MainActor @Published var launchAtLogin: Bool = false
     
     private var refreshTimer: Timer?
     
     // Track parent disks created by this app (persisted in UserDefaults)
     private let trackedDisksKey = "com.jramdisk.trackedParentDisks"
+    private let autoCreateKey = "com.jramdisk.autoCreateConfigs"
     
     private var trackedParentDisks: Set<String> {
         get {
@@ -45,13 +63,87 @@ class RamDiskManager: ObservableObject {
     init() {
         startAutoRefresh()
         Task { @MainActor in
+            loadAutoCreateConfigs()
+            updateLaunchAtLoginStatus()
             await refreshRamDisks()
+            await createAutoCreateDisks()
         }
     }
     
     deinit {
         refreshTimer?.invalidate()
     }
+    
+    // MARK: - Launch at Login
+    
+    @MainActor
+    func updateLaunchAtLoginStatus() {
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+    
+    @MainActor
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLogin = enabled
+        } catch {
+            errorMessage = "Failed to \(enabled ? "enable" : "disable") launch at login: \(error.localizedDescription)"
+        }
+    }
+    
+    // MARK: - Auto Create Configs
+    
+    @MainActor
+    func loadAutoCreateConfigs() {
+        if let data = UserDefaults.standard.data(forKey: autoCreateKey),
+           let configs = try? JSONDecoder().decode([AutoCreateConfig].self, from: data) {
+            autoCreateConfigs = configs
+        }
+    }
+    
+    @MainActor
+    func saveAutoCreateConfigs() {
+        if let data = try? JSONEncoder().encode(autoCreateConfigs) {
+            UserDefaults.standard.set(data, forKey: autoCreateKey)
+        }
+    }
+    
+    @MainActor
+    func addAutoCreateConfig(name: String, sizeMB: Int) {
+        let config = AutoCreateConfig(name: name, sizeMB: sizeMB)
+        if !autoCreateConfigs.contains(where: { $0.name == name }) {
+            autoCreateConfigs.append(config)
+            saveAutoCreateConfigs()
+            successMessage = "'\(name)' will be created at login"
+        }
+    }
+    
+    @MainActor
+    func removeAutoCreateConfig(name: String) {
+        autoCreateConfigs.removeAll { $0.name == name }
+        saveAutoCreateConfigs()
+    }
+    
+    @MainActor
+    func isAutoCreate(name: String) -> Bool {
+        return autoCreateConfigs.contains { $0.name == name }
+    }
+    
+    @MainActor
+    func createAutoCreateDisks() async {
+        for config in autoCreateConfigs {
+            // Check if disk with this name already exists
+            if !ramDisks.contains(where: { $0.volumeName == config.name }) {
+                _ = await createRamDisk(name: config.name, sizeMB: config.sizeMB)
+            }
+        }
+    }
+    
+    // MARK: - Refresh
     
     private func startAutoRefresh() {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
