@@ -10,6 +10,7 @@
 		A1000001229D0001AAAAAAAA /* jRamDiskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002229D0002AAAAAAAA /* jRamDiskApp.swift */; };
 		A1000003229D0003AAAAAAAA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004229D0004AAAAAAAA /* ContentView.swift */; };
 		A1000005229D0005AAAAAAAA /* RamDiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000006229D0006AAAAAAAA /* RamDiskManager.swift */; };
+		A1000020229D0020AAAAAAAA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000021229D0021AAAAAAAA /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -18,6 +19,7 @@
 		A1000006229D0006AAAAAAAA /* RamDiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RamDiskManager.swift; sourceTree = "<group>"; };
 		A1000007229D0007AAAAAAAA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000008229D0008AAAAAAAA /* jRamDisk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = jRamDisk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000021229D0021AAAAAAAA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -34,6 +36,7 @@
 		A100000A229D000AAAAAAAAA = {
 			isa = PBXGroup;
 			children = (
+				A1000021229D0021AAAAAAAA /* Assets.xcassets */,
 				A1000002229D0002AAAAAAAA /* jRamDiskApp.swift */,
 				A1000004229D0004AAAAAAAA /* ContentView.swift */,
 				A1000006229D0006AAAAAAAA /* RamDiskManager.swift */,
@@ -108,6 +111,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000020229D0020AAAAAAAA /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -248,6 +252,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -257,13 +262,17 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_CFBundleDisplayName = jRamDisk;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024. All rights reserved.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jramdisk.app;
+				PRODUCT_BUNDLE_IDENTIFIER = mk.dong.jramdisk.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -275,6 +284,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -284,13 +294,17 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_CFBundleDisplayName = jRamDisk;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024. All rights reserved.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jramdisk.app;
+				PRODUCT_BUNDLE_IDENTIFIER = mk.dong.jramdisk.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -319,7 +333,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = A1000010229D0010AAAAAAAA /* Project object */;
 }

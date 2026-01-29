@@ -47,11 +47,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @MainActor
     private func setupStatusBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: "jRamDisk")
-            button.image?.isTemplate = true
+            // Try to use SF Symbol, fallback to app icon
+            if let image = NSImage(systemSymbolName: "memorychip.fill", accessibilityDescription: "jRamDisk") {
+                let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+                button.image = image.withSymbolConfiguration(config)
+                button.image?.isTemplate = true
+            } else if let appIcon = NSImage(named: NSImage.applicationIconName) {
+                // Use app icon as fallback
+                let size = NSSize(width: 18, height: 18)
+                appIcon.size = size
+                button.image = appIcon
+            } else {
+                // Last resort: use a basic symbol
+                button.image = NSImage(systemSymbolName: "externaldrive.fill", accessibilityDescription: "jRamDisk")
+                button.image?.isTemplate = true
+            }
         }
         
         statusMenu = NSMenu()
