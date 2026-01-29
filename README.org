@@ -1,0 +1,36 @@
+* jRamDisk
+
+A macOS app for managing RAM disks, mimicing iRamDisk.app
+
+** Features
+
+- Create APFS-formatted RAM disks (64 MB - 8 GB)
+- Menu bar icon for quick access
+- Auto-create RAM disks at login
+- Launch at login support
+- Open RAM disks in Finder
+- Vibe coded and open-sourced!
+
+** Requirements
+
+- macOS 13.0+
+
+** Usage
+
+1. Click "New RAM Disk" to create a RAM disk
+2. Set name and size, optionally enable "Create at Login"
+3. Click the clock icon on existing disks to toggle auto-create
+4. Use the menu bar icon for quick actions
+5. Enable "Launch at Login" in Settings
+
+** Building
+
+#+begin_src sh
+open jRamDisk.xcodeproj
+#+end_src
+
+Build and run with Xcode (⌘R).
+
+** License
+
+MIT
