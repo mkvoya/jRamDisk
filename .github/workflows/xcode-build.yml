@@ -24,25 +24,41 @@ jobs:
           echo "name=$default" >> $GITHUB_OUTPUT
           echo Using default scheme: $default
 
-      - name: Build
+      - name: Build arm64 (Apple Silicon)
         run: |
           scheme=$(cat default)
           if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
           file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild clean build -scheme "$scheme" -configuration Release -derivedDataPath build -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+          xcodebuild clean build -scheme "$scheme" -configuration Release -derivedDataPath build-arm64 -destination 'platform=macOS,arch=arm64' -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
 
-      - name: Create DMG
+      - name: Build x86_64 (Intel)
+        run: |
+          scheme=$(cat default)
+          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
+          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
+          xcodebuild clean build -scheme "$scheme" -configuration Release -derivedDataPath build-x64 -destination 'platform=macOS,arch=x86_64' -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Create DMG (Apple Silicon and Intel)
         run: |
           scheme=$(cat default)
           app_name="$scheme"
-          dmg_root="dmg_root"
-          mkdir -p "$dmg_root"
-          cp -R "build/Build/Products/Release/${app_name}.app" "$dmg_root/"
-          ln -s /Applications "$dmg_root/Applications"
-          hdiutil create -volname "$app_name" -srcfolder "$dmg_root" -ov -format UDZO "${app_name}.dmg"
+          for arch in arm64 x64; do
+            [ "$arch" = "arm64" ] && dmg_suffix="Apple-Silicon" || dmg_suffix="Intel"
+            dmg_root="dmg_root_${arch}"
+            mkdir -p "$dmg_root"
+            cp -R "build-${arch}/Build/Products/Release/${app_name}.app" "$dmg_root/"
+            ln -s /Applications "$dmg_root/Applications"
+            hdiutil create -volname "$app_name" -srcfolder "$dmg_root" -ov -format UDZO "${app_name}-${dmg_suffix}.dmg"
+          done
 
-      - name: Upload DMG
+      - name: Upload DMG (Apple Silicon)
         uses: actions/upload-artifact@v4
         with:
-          name: jRamDisk-macOS
-          path: ${{ steps.scheme.outputs.name }}.dmg
+          name: jRamDisk-macOS-Apple-Silicon
+          path: ${{ steps.scheme.outputs.name }}-Apple-Silicon.dmg
+
+      - name: Upload DMG (Intel)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jRamDisk-macOS-Intel
+          path: ${{ steps.scheme.outputs.name }}-Intel.dmg
