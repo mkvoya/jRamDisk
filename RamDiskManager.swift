@@ -21,12 +21,11 @@ struct RamDisk: Identifiable, Equatable {
     }
 }
 
-@MainActor
 class RamDiskManager: ObservableObject {
-    @Published var ramDisks: [RamDisk] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var successMessage: String?
+    @MainActor @Published var ramDisks: [RamDisk] = []
+    @MainActor @Published var isLoading = false
+    @MainActor @Published var errorMessage: String?
+    @MainActor @Published var successMessage: String?
     
     private var refreshTimer: Timer?
     
@@ -45,7 +44,7 @@ class RamDiskManager: ObservableObject {
     
     init() {
         startAutoRefresh()
-        Task {
+        Task { @MainActor in
             await refreshRamDisks()
         }
     }
@@ -62,6 +61,7 @@ class RamDiskManager: ObservableObject {
         }
     }
     
+    @MainActor
     func refreshRamDisks() async {
         let disks = await fetchRamDisks()
         self.ramDisks = disks
@@ -181,6 +181,7 @@ class RamDiskManager: ObservableObject {
         return foundDisks
     }
     
+    @MainActor
     func createRamDisk(name: String, sizeMB: Int) async -> Bool {
         isLoading = true
         errorMessage = nil
@@ -235,6 +236,7 @@ class RamDiskManager: ObservableObject {
         }
     }
     
+    @MainActor
     func removeRamDisk(_ ramDisk: RamDisk) async -> Bool {
         isLoading = true
         errorMessage = nil

@@ -26,5 +26,7 @@
 	<string>Copyright © 2024. All rights reserved.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>LSUIElement</key>
+	<false/>
 </dict>
 </plist>
