@@ -293,9 +293,16 @@ struct CreateRamDiskSheet: View {
     @Binding var isPresented: Bool
     
     @State private var diskName = "RamDisk"
-    @State private var selectedSize = 512
+    @State private var sliderValue: Double = 9 // log2(512) = 9
     
-    let sizeOptions = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
+    // Slider range: 64 MB (2^6 * 64 = 64) to 8192 MB (2^13 = 8192)
+    // Using log scale: 6 to 13 maps to 64 MB to 8 GB
+    private let minPower: Double = 6  // 64 MB
+    private let maxPower: Double = 13 // 8192 MB (8 GB)
+    
+    private var selectedSizeMB: Int {
+        Int(pow(2, sliderValue))
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -327,23 +334,46 @@ struct CreateRamDiskSheet: View {
                 }
                 
                 // Size selector
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text("Size")
                             .font(.headline)
                         Spacer()
-                        Text("\(selectedSize) MB")
-                            .font(.headline)
+                        Text(formatSize(selectedSizeMB))
+                            .font(.system(.title2, design: .rounded).bold())
                             .foregroundColor(.blue)
                     }
                     
-                    Picker("Size", selection: $selectedSize) {
-                        ForEach(sizeOptions, id: \.self) { size in
-                            Text(formatSize(size)).tag(size)
+                    Slider(value: $sliderValue, in: minPower...maxPower, step: 1) {
+                        Text("Size")
+                    } minimumValueLabel: {
+                        Text("64 MB")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } maximumValueLabel: {
+                        Text("8 GB")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .tint(.blue)
+                    
+                    // Size presets
+                    HStack(spacing: 8) {
+                        ForEach([6, 8, 9, 10, 11, 12, 13], id: \.self) { power in
+                            Button(action: { sliderValue = Double(power) }) {
+                                Text(formatSize(Int(pow(2, Double(power)))))
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Int(sliderValue) == power ? Color.blue : Color.secondary.opacity(0.2))
+                                    )
+                                    .foregroundColor(Int(sliderValue) == power ? .white : .primary)
+                            }
+                            .buttonStyle(.borderless)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
                     
                     Text("Recommended: 512 MB - 2 GB for most use cases")
                         .font(.caption)
@@ -408,7 +438,7 @@ struct CreateRamDiskSheet: View {
         guard !name.isEmpty else { return }
         
         Task {
-            let success = await ramDiskManager.createRamDisk(name: name, sizeMB: selectedSize)
+            let success = await ramDiskManager.createRamDisk(name: name, sizeMB: selectedSizeMB)
             if success {
                 isPresented = false
             }

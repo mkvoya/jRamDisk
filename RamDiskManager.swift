@@ -11,6 +11,7 @@ import Combine
 struct RamDisk: Identifiable, Equatable {
     let id = UUID()
     let deviceNode: String
+    let parentDisk: String
     let volumeName: String
     let size: UInt64
     let mountPoint: String
@@ -28,6 +29,19 @@ class RamDiskManager: ObservableObject {
     @Published var successMessage: String?
     
     private var refreshTimer: Timer?
+    
+    // Track parent disks created by this app (persisted in UserDefaults)
+    private let trackedDisksKey = "com.jramdisk.trackedParentDisks"
+    
+    private var trackedParentDisks: Set<String> {
+        get {
+            let array = UserDefaults.standard.stringArray(forKey: trackedDisksKey) ?? []
+            return Set(array)
+        }
+        set {
+            UserDefaults.standard.set(Array(newValue), forKey: trackedDisksKey)
+        }
+    }
     
     init() {
         startAutoRefresh()
@@ -51,32 +65,47 @@ class RamDiskManager: ObservableObject {
     func refreshRamDisks() async {
         let disks = await fetchRamDisks()
         self.ramDisks = disks
+        
+        // Clean up tracked disks that no longer exist
+        await cleanupTrackedDisks()
     }
     
-    private func fetchRamDisks() async -> [RamDisk] {
-        // Use diskutil list to find RAM disks
+    private func cleanupTrackedDisks() async {
+        // Get list of all currently existing disk identifiers
         guard let output = await runCommand("/usr/sbin/diskutil", arguments: ["list"]) else {
-            return []
+            return
         }
         
-        var foundDisks: [RamDisk] = []
+        var existingDisks = Set<String>()
         let lines = output.components(separatedBy: "\n")
-        var currentDisk: String?
-        
         for line in lines {
-            // Look for disk identifiers that might be RAM disks
             if line.contains("/dev/disk") {
-                let components = line.components(separatedBy: " ").filter { !$0.isEmpty }
-                if let diskPath = components.first {
-                    currentDisk = diskPath
+                // Extract disk identifier like "disk5"
+                if let range = line.range(of: "disk\\d+", options: .regularExpression) {
+                    existingDisks.insert(String(line[range]))
                 }
             }
         }
         
-        // Get detailed info about each disk to identify RAM disks
+        // Remove tracked disks that no longer exist
+        var tracked = trackedParentDisks
+        tracked = tracked.filter { existingDisks.contains($0) }
+        trackedParentDisks = tracked
+    }
+    
+    private func fetchRamDisks() async -> [RamDisk] {
+        let tracked = trackedParentDisks
+        
+        guard !tracked.isEmpty else {
+            return []
+        }
+        
+        // Get detailed info about all disks
         guard let plistOutput = await runCommand("/usr/sbin/diskutil", arguments: ["list", "-plist"]) else {
             return []
         }
+        
+        var foundDisks: [RamDisk] = []
         
         if let data = plistOutput.data(using: .utf8),
            let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
@@ -85,56 +114,63 @@ class RamDiskManager: ObservableObject {
             for disk in allDisks {
                 guard let deviceId = disk["DeviceIdentifier"] as? String else { continue }
                 
-                // Check if this is a RAM disk by examining its properties
-                if let infoOutput = await runCommand("/usr/sbin/diskutil", arguments: ["info", "-plist", deviceId]),
-                   let infoData = infoOutput.data(using: .utf8),
-                   let infoPlist = try? PropertyListSerialization.propertyList(from: infoData, options: [], format: nil) as? [String: Any] {
-                    
-                    let mediaName = infoPlist["MediaName"] as? String ?? ""
-                    let ioRegName = infoPlist["IORegistryEntryName"] as? String ?? ""
-                    
-                    // RAM disks typically have "disk image" in their properties or are created via hdid/hdiutil
-                    if mediaName.lowercased().contains("ram") || 
-                       ioRegName.lowercased().contains("disk image") ||
-                       (infoPlist["VirtualOrPhysical"] as? String) == "Virtual" {
-                        
-                        // Check partitions
-                        if let partitions = disk["Partitions"] as? [[String: Any]] {
-                            for partition in partitions {
-                                if let partitionId = partition["DeviceIdentifier"] as? String,
-                                   let volumeName = partition["VolumeName"] as? String,
-                                   let size = partition["Size"] as? UInt64,
-                                   let mountPoint = partition["MountPoint"] as? String,
-                                   !volumeName.isEmpty {
-                                    
-                                    let ramDisk = RamDisk(
-                                        deviceNode: "/dev/\(partitionId)",
-                                        volumeName: volumeName,
-                                        size: size,
-                                        mountPoint: mountPoint
-                                    )
-                                    foundDisks.append(ramDisk)
-                                }
+                // Check if this disk is directly one we created (for HFS+ or simple formats)
+                if tracked.contains(deviceId) {
+                    // Check partitions (for HFS+)
+                    if let partitions = disk["Partitions"] as? [[String: Any]] {
+                        for partition in partitions {
+                            if let partitionId = partition["DeviceIdentifier"] as? String,
+                               let volumeName = partition["VolumeName"] as? String,
+                               let size = partition["Size"] as? UInt64,
+                               !volumeName.isEmpty {
+                                let mountPoint = partition["MountPoint"] as? String ?? ""
+                                
+                                let ramDisk = RamDisk(
+                                    deviceNode: "/dev/\(partitionId)",
+                                    parentDisk: deviceId,
+                                    volumeName: volumeName,
+                                    size: size,
+                                    mountPoint: mountPoint
+                                )
+                                foundDisks.append(ramDisk)
                             }
                         }
-                        
-                        // Also check APFSVolumes for APFS formatted RAM disks
-                        if let apfsVolumes = disk["APFSVolumes"] as? [[String: Any]] {
-                            for volume in apfsVolumes {
-                                if let volumeId = volume["DeviceIdentifier"] as? String,
-                                   let volumeName = volume["VolumeName"] as? String,
-                                   let size = volume["Size"] as? UInt64,
-                                   let mountPoint = volume["MountPoint"] as? String,
-                                   !volumeName.isEmpty {
-                                    
-                                    let ramDisk = RamDisk(
-                                        deviceNode: "/dev/\(volumeId)",
-                                        volumeName: volumeName,
-                                        size: size,
-                                        mountPoint: mountPoint
-                                    )
-                                    foundDisks.append(ramDisk)
-                                }
+                    }
+                }
+                
+                // Check if this is an APFS container whose physical store is one of our tracked disks
+                if let physicalStores = disk["APFSPhysicalStores"] as? [[String: Any]] {
+                    var matchedParentDisk: String? = nil
+                    
+                    for store in physicalStores {
+                        if let storeDeviceId = store["DeviceIdentifier"] as? String,
+                           tracked.contains(storeDeviceId) {
+                            matchedParentDisk = storeDeviceId
+                            break
+                        }
+                    }
+                    
+                    // If this APFS container is backed by one of our RAM disks, get its volumes
+                    if let parentDisk = matchedParentDisk,
+                       let apfsVolumes = disk["APFSVolumes"] as? [[String: Any]] {
+                        for volume in apfsVolumes {
+                            if let volumeId = volume["DeviceIdentifier"] as? String,
+                               let volumeName = volume["VolumeName"] as? String,
+                               !volumeName.isEmpty {
+                                let size = volume["Size"] as? UInt64 ?? volume["CapacityInUse"] as? UInt64 ?? 0
+                                let mountPoint = volume["MountPoint"] as? String ?? ""
+                                
+                                // Get the container size for display (more meaningful than volume size)
+                                let containerSize = disk["Size"] as? UInt64 ?? size
+                                
+                                let ramDisk = RamDisk(
+                                    deviceNode: "/dev/\(volumeId)",
+                                    parentDisk: parentDisk,
+                                    volumeName: volumeName,
+                                    size: containerSize,
+                                    mountPoint: mountPoint
+                                )
+                                foundDisks.append(ramDisk)
                             }
                         }
                     }
@@ -168,20 +204,32 @@ class RamDiskManager: ObservableObject {
             return false
         }
         
-        // Format the RAM disk with APFS
-        guard let formatOutput = await runCommand("/usr/sbin/diskutil", arguments: ["erasevolume", "APFS", name, device]) else {
-            // If formatting fails, try to detach the device
+        // Extract the disk identifier (e.g., "disk5" from "/dev/disk5")
+        let parentDiskId = device.replacingOccurrences(of: "/dev/", with: "")
+        
+        // Track this disk as created by our app
+        var tracked = trackedParentDisks
+        tracked.insert(parentDiskId)
+        trackedParentDisks = tracked
+        
+        // Format the RAM disk with APFS (using apfs create for proper APFS container structure)
+        guard let formatOutput = await runCommand("/usr/sbin/diskutil", arguments: ["apfs", "create", device, name]) else {
+            // If formatting fails, try to detach the device and remove from tracking
             _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", device])
+            tracked.remove(parentDiskId)
+            trackedParentDisks = tracked
             errorMessage = "Failed to format RAM disk"
             return false
         }
         
-        if formatOutput.contains("Finished erase") || formatOutput.contains("successfully") {
+        if formatOutput.contains("Finished APFS operation") || formatOutput.contains("successfully") {
             successMessage = "RAM disk '\(name)' created successfully (\(sizeMB) MB)"
             await refreshRamDisks()
             return true
         } else {
             _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", device])
+            tracked.remove(parentDiskId)
+            trackedParentDisks = tracked
             errorMessage = "Failed to format RAM disk: \(formatOutput)"
             return false
         }
@@ -197,37 +245,32 @@ class RamDiskManager: ObservableObject {
         // First try to unmount
         _ = await runCommand("/usr/sbin/diskutil", arguments: ["unmount", ramDisk.deviceNode])
         
-        // Then eject/detach
-        // Get the parent disk (e.g., disk2 from disk2s1)
-        let parentDisk = getParentDisk(from: ramDisk.deviceNode)
+        // Then eject/detach using parent disk
+        let parentDiskPath = "/dev/\(ramDisk.parentDisk)"
         
-        if let _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", parentDisk]) {
+        var success = false
+        if let _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", parentDiskPath]) {
+            success = true
+        } else {
+            // Try force detach
+            if let _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", "-force", parentDiskPath]) {
+                success = true
+            }
+        }
+        
+        if success {
+            // Remove from tracked disks
+            var tracked = trackedParentDisks
+            tracked.remove(ramDisk.parentDisk)
+            trackedParentDisks = tracked
+            
             successMessage = "RAM disk '\(ramDisk.volumeName)' removed successfully"
             await refreshRamDisks()
             return true
         } else {
-            // Try force detach
-            if let _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", "-force", parentDisk]) {
-                successMessage = "RAM disk '\(ramDisk.volumeName)' removed successfully"
-                await refreshRamDisks()
-                return true
-            }
             errorMessage = "Failed to remove RAM disk"
             return false
         }
-    }
-    
-    private func getParentDisk(from deviceNode: String) -> String {
-        // Convert /dev/disk2s1 to /dev/disk2
-        let device = deviceNode.replacingOccurrences(of: "/dev/", with: "")
-        var parentDisk = device
-        
-        // Remove partition suffix (s1, s2, etc.)
-        if let range = device.range(of: "s\\d+$", options: .regularExpression) {
-            parentDisk = String(device[..<range.lowerBound])
-        }
-        
-        return "/dev/\(parentDisk)"
     }
     
     private func runCommand(_ command: String, arguments: [String]) async -> String? {
