@@ -31,40 +31,36 @@ struct jRamDiskApp: App {
 }
 
 // MARK: - App Delegate with Status Bar
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var statusMenu: NSMenu?
     
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        Task { @MainActor in
-            self.setupStatusBar()
+    nonisolated func applicationDidFinishLaunching(_ notification: Notification) {
+        // 尽早创建 status item：用 DispatchQueue.main.async 确保在 main run loop 下一轮立即执行，
+        // 避免与 SwiftUI 首帧竞争导致菜单栏图标不显示
+        DispatchQueue.main.async { [weak self] in
+            self?.setupStatusBar()
         }
     }
     
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    nonisolated func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
     
-    @MainActor
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
         if let button = statusItem?.button {
-            // Try to use SF Symbol, fallback to app icon
             if let image = NSImage(systemSymbolName: "memorychip.fill", accessibilityDescription: "jRamDisk") {
-                let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-                button.image = image.withSymbolConfiguration(config)
-                button.image?.isTemplate = true
-            } else if let appIcon = NSImage(named: NSImage.applicationIconName) {
-                // Use app icon as fallback
-                let size = NSSize(width: 18, height: 18)
-                appIcon.size = size
-                button.image = appIcon
+                image.isTemplate = true
+                // 菜单栏图标建议 18pt，确保在 Retina 上清晰显示
+                image.size = NSSize(width: 18, height: 18)
+                button.image = image
             } else {
-                // Last resort: use a basic symbol
-                button.image = NSImage(systemSymbolName: "externaldrive.fill", accessibilityDescription: "jRamDisk")
-                button.image?.isTemplate = true
+                button.title = "RAM"
             }
+            button.toolTip = "jRamDisk"
         }
         
         statusMenu = NSMenu()
@@ -73,7 +69,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
     
-    @MainActor
     func rebuildMenu() {
         guard let statusMenu = statusMenu else { return }
         statusMenu.removeAllItems()
@@ -135,9 +130,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(quickCreateItem)
         
         // Open main window
-        let openItem = NSMenuItem(title: "Open jRamDisk...", action: #selector(openMainWindow), keyEquivalent: "o")
-        openItem.target = self
-        statusMenu.addItem(openItem)
+        let openWindowItem = NSMenuItem(title: "Open jRamDisk...", action: #selector(openMainWindow), keyEquivalent: "o")
+        openWindowItem.target = self
+        statusMenu.addItem(openWindowItem)
         
         statusMenu.addItem(NSMenuItem.separator())
         
@@ -160,13 +155,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.addItem(quitItem)
     }
     
-    @MainActor
     @objc func toggleLaunchAtLogin() {
         sharedRamDiskManager.setLaunchAtLogin(!sharedRamDiskManager.launchAtLogin)
         rebuildMenu()
     }
     
-    @MainActor
     @objc func openInFinder(_ sender: NSMenuItem) {
         let index = sender.tag
         let ramDisks = sharedRamDiskManager.ramDisks
@@ -177,7 +170,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    @MainActor
     @objc func ejectDisk(_ sender: NSMenuItem) {
         let index = sender.tag
         let ramDisks = sharedRamDiskManager.ramDisks
@@ -191,7 +183,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func quickCreate(_ sender: NSMenuItem) {
         let sizeMB = sender.tag
-        Task { @MainActor in
+        Task {
             await sharedRamDiskManager.createRamDisk(name: "RamDisk", sizeMB: sizeMB)
             self.rebuildMenu()
         }
@@ -200,7 +192,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openMainWindow() {
         NSApplication.shared.activate(ignoringOtherApps: true)
         
-        // Find and show the main window, or create a new one
         for window in NSApplication.shared.windows {
             if window.canBecomeMain {
                 window.makeKeyAndOrderFront(nil)
@@ -210,7 +201,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func refreshDisks() {
-        Task { @MainActor in
+        Task {
             await sharedRamDiskManager.refreshRamDisks()
             self.rebuildMenu()
         }
@@ -223,7 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - NSMenuDelegate
 extension AppDelegate: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
+    nonisolated func menuWillOpen(_ menu: NSMenu) {
         Task { @MainActor in
             await sharedRamDiskManager.refreshRamDisks()
             self.rebuildMenu()
