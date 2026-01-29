@@ -1,0 +1,48 @@
+name: Xcode - Build and DMG
+
+on:
+  push:
+    branches: [ "trunk" ]
+  pull_request:
+    branches: [ "trunk" ]
+
+jobs:
+  build:
+    name: Build app and create DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Default Scheme
+        id: scheme
+        run: |
+          scheme_list=$(xcodebuild -list -json | tr -d "\n")
+          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
+          echo $default | cat >default
+          echo "name=$default" >> $GITHUB_OUTPUT
+          echo Using default scheme: $default
+
+      - name: Build
+        run: |
+          scheme=$(cat default)
+          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
+          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
+          xcodebuild clean build -scheme "$scheme" -configuration Release -derivedDataPath build -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Create DMG
+        run: |
+          scheme=$(cat default)
+          app_name="$scheme"
+          dmg_root="dmg_root"
+          mkdir -p "$dmg_root"
+          cp -R "build/Build/Products/Release/${app_name}.app" "$dmg_root/"
+          ln -s /Applications "$dmg_root/Applications"
+          hdiutil create -volname "$app_name" -srcfolder "$dmg_root" -ov -format UDZO "${app_name}.dmg"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: jRamDisk-macOS
+          path: ${{ steps.scheme.outputs.name }}.dmg
