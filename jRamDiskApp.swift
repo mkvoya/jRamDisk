@@ -37,6 +37,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusMenu: NSMenu?
     
     nonisolated func applicationDidFinishLaunching(_ notification: Notification) {
+        // 隐藏 Dock 图标，仅保留菜单栏
+        NSApplication.shared.setActivationPolicy(.accessory)
+
         // 尽早创建 status item：用 DispatchQueue.main.async 确保在 main run loop 下一轮立即执行，
         // 避免与 SwiftUI 首帧竞争导致菜单栏图标不显示
         DispatchQueue.main.async { [weak self] in
