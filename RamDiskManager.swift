@@ -285,15 +285,8 @@ class RamDiskManager: ObservableObject {
         let sectors = sizeMB * 2048
         
         // Create RAM disk device
-        guard let deviceOutput = await runCommand("/usr/bin/hdiutil", arguments: ["attach", "-nomount", "ram://\(sectors)"]) else {
+        guard let device = await attachRamDisk(sectors: sectors) else {
             errorMessage = "Failed to create RAM disk device"
-            return false
-        }
-        
-        let device = deviceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        guard !device.isEmpty else {
-            errorMessage = "Failed to get device identifier"
             return false
         }
         
@@ -308,7 +301,7 @@ class RamDiskManager: ObservableObject {
         // Format the RAM disk with APFS (using apfs create for proper APFS container structure)
         guard let formatOutput = await runCommand("/usr/sbin/diskutil", arguments: ["apfs", "create", device, name]) else {
             // If formatting fails, try to detach the device and remove from tracking
-            _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", device])
+            _ = await detachRamDisk(device: device)
             tracked.remove(parentDiskId)
             trackedParentDisks = tracked
             errorMessage = "Failed to format RAM disk"
@@ -320,7 +313,7 @@ class RamDiskManager: ObservableObject {
             await refreshRamDisks()
             return true
         } else {
-            _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", device])
+            _ = await detachRamDisk(device: device)
             tracked.remove(parentDiskId)
             trackedParentDisks = tracked
             errorMessage = "Failed to format RAM disk: \(formatOutput)"
@@ -343,13 +336,10 @@ class RamDiskManager: ObservableObject {
         let parentDiskPath = "/dev/\(ramDisk.parentDisk)"
         
         var success = false
-        if let _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", parentDiskPath]) {
+        if await detachRamDisk(device: parentDiskPath) {
             success = true
-        } else {
-            // Try force detach
-            if let _ = await runCommand("/usr/bin/hdiutil", arguments: ["detach", "-force", parentDiskPath]) {
-                success = true
-            }
+        } else if await detachRamDisk(device: parentDiskPath, force: true) {
+            success = true
         }
         
         if success {
@@ -365,6 +355,34 @@ class RamDiskManager: ObservableObject {
             errorMessage = "Failed to remove RAM disk"
             return false
         }
+    }
+    
+    private func attachRamDisk(sectors: Int) async -> String? {
+        let output = await runCommand("/usr/sbin/diskutil", arguments: ["image", "attach", "-noMount", "ram://\(sectors)"])
+        return parseDevicePath(from: output)
+    }
+    
+    private func detachRamDisk(device: String, force: Bool = false) async -> Bool {
+        var arguments = ["eject"]
+        if force {
+            arguments.append("force")
+        }
+        arguments.append(device)
+        let output = await runCommand("/usr/sbin/diskutil", arguments: arguments)
+        return output != nil
+    }
+    
+    private func parseDevicePath(from output: String?) -> String? {
+        guard let output else { return nil }
+        
+        let pattern = #"/dev/disk\d+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
+              let range = Range(match.range, in: output) else {
+            return nil
+        }
+        
+        return String(output[range])
     }
     
     private func runCommand(_ command: String, arguments: [String]) async -> String? {
@@ -383,7 +401,11 @@ class RamDiskManager: ObservableObject {
                 
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let output = String(data: data, encoding: .utf8)
-                continuation.resume(returning: output)
+                if process.terminationStatus == 0 {
+                    continuation.resume(returning: output)
+                } else {
+                    continuation.resume(returning: nil)
+                }
             } catch {
                 continuation.resume(returning: nil)
             }
