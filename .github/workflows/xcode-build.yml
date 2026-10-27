@@ -1,64 +1,97 @@
-name: Xcode - Build and DMG
+name: macOS Build
 
 on:
   push:
-    branches: [ "trunk" ]
+    branches: [trunk, main, master]
+    tags: ['v*']
   pull_request:
-    branches: [ "trunk" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build app and create DMG
-    runs-on: macos-latest
+    name: Universal macOS app and DMG
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
-      - name: Set Default Scheme
-        id: scheme
-        run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
-          echo $default | cat >default
-          echo "name=$default" >> $GITHUB_OUTPUT
-          echo Using default scheme: $default
+      - name: Show toolchain
+        run: xcodebuild -version
 
-      - name: Build arm64 (Apple Silicon)
+      - name: Build Release for Apple Silicon and Intel
         run: |
-          scheme=$(cat default)
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild clean build -scheme "$scheme" -configuration Release -derivedDataPath build-arm64 -destination 'platform=macOS,arch=arm64' -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild build \
+            -project jRamDisk.xcodeproj \
+            -scheme jRamDisk \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            -resultBundlePath build/Build.xcresult \
+            ARCHS='arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM= \
+            | tee build/xcodebuild.log
 
-      - name: Build x86_64 (Intel)
+      - name: Verify and ad-hoc sign app
         run: |
-          scheme=$(cat default)
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
-          xcodebuild clean build -scheme "$scheme" -configuration Release -derivedDataPath build-x64 -destination 'platform=macOS,arch=x86_64' -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
-
-      - name: Create DMG (Apple Silicon and Intel)
-        run: |
-          scheme=$(cat default)
-          app_name="$scheme"
-          for arch in arm64 x64; do
-            [ "$arch" = "arm64" ] && dmg_suffix="Apple-Silicon" || dmg_suffix="Intel"
-            dmg_root="dmg_root_${arch}"
-            mkdir -p "$dmg_root"
-            cp -R "build-${arch}/Build/Products/Release/${app_name}.app" "$dmg_root/"
-            ln -s /Applications "$dmg_root/Applications"
-            hdiutil create -volname "$app_name" -srcfolder "$dmg_root" -ov -format UDZO "${app_name}-${dmg_suffix}.dmg"
+          set -euo pipefail
+          app='build/DerivedData/Build/Products/Release/jRamDisk.app'
+          test -d "$app"
+          for arch in arm64 x86_64; do
+            lipo "$app/Contents/MacOS/jRamDisk" -verify_arch "$arch"
           done
+          plutil -lint "$app/Contents/Info.plist"
+          # No Apple certificate or secrets required. This is not notarization.
+          codesign --force --sign - --timestamp=none "$app"
+          codesign --verify --strict --verbose=2 "$app"
 
-      - name: Upload DMG (Apple Silicon)
+      - name: Create DMG and checksum
+        run: |
+          set -euo pipefail
+          mkdir -p build/dmg-root dist
+          ditto build/DerivedData/Build/Products/Release/jRamDisk.app build/dmg-root/jRamDisk.app
+          ln -s /Applications build/dmg-root/Applications
+          hdiutil create -volname jRamDisk -srcfolder build/dmg-root \
+            -format UDZO dist/jRamDisk-macOS-Universal.dmg
+          hdiutil verify dist/jRamDisk-macOS-Universal.dmg
+          cd dist
+          shasum -a 256 jRamDisk-macOS-Universal.dmg > jRamDisk-macOS-Universal.dmg.sha256
+
+      - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: jRamDisk-macOS-Apple-Silicon
-          path: ${{ steps.scheme.outputs.name }}-Apple-Silicon.dmg
+          name: jRamDisk-macOS-Universal
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Upload DMG (Intel)
+      - name: Upload build diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jRamDisk-macOS-Intel
-          path: ${{ steps.scheme.outputs.name }}-Intel.dmg
+          name: jRamDisk-build-diagnostics
+          path: |
+            build/xcodebuild.log
+            build/Build.xcresult
+          if-no-files-found: warn
+          retention-days: 7

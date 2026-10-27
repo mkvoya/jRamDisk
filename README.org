@@ -31,6 +31,32 @@ open jRamDisk.xcodeproj
 
 Build and run with Xcode (⌘R).
 
+** Continuous integration
+
+[[file:.github/workflows/xcode-build.yml][GitHub Actions]] builds on pushes to =trunk=, =main=, or =master=, =v*= tags,
+all pull requests, and manual runs from the Actions tab.
+The workflow uses macOS 15 and Xcode 16.4 with a shared =jRamDisk= scheme.
+
+- Builds a Release Universal app containing both =arm64= and =x86_64= (macOS 13.0+).
+- Verifies both architectures, applies an ad-hoc signature, and packages a DMG with an Applications shortcut.
+- Uploads =jRamDisk-macOS-Universal= with the DMG and SHA-256 checksum (retained for 14 days).
+- Uploads build logs and the Xcode result bundle even on failure (retained for 7 days).
+
+Download the artifact from a successful run under GitHub → Actions → macOS Build.
+No signing secrets are required. These builds are ad-hoc signed, not Developer ID
+signed or notarized; Gatekeeper may block downloaded builds. Tag builds produce
+artifacts only, not GitHub Releases. CI currently checks compilation and packaging;
+there is no automated test target or RAM disk runtime test yet.
+
+To reproduce the universal build locally:
+
+#+begin_src sh
+xcodebuild build -project jRamDisk.xcodeproj -scheme jRamDisk \
+  -configuration Release -destination 'generic/platform=macOS' \
+  -derivedDataPath build/DerivedData ARCHS='arm64 x86_64' \
+  ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=
+#+end_src
+
 ** License
 
 MIT
