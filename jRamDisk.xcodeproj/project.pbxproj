@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D1000001229D0001AAAAAAAA = {isa = PBXBuildFile; fileRef = D1000002229D0002AAAAAAAA; };
+		C1000001229D0001AAAAAAAA = {isa = PBXBuildFile; fileRef = C1000002229D0002AAAAAAAA; };
 		B1000001229D0001AAAAAAAA /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002229D0002AAAAAAAA; };
 		A1000001229D0001AAAAAAAA /* jRamDiskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002229D0002AAAAAAAA /* jRamDiskApp.swift */; };
 		A1000003229D0003AAAAAAAA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004229D0004AAAAAAAA /* ContentView.swift */; };
@@ -15,6 +17,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		D1000002229D0002AAAAAAAA = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskEvents.swift; sourceTree = "<group>"; };
+		C1000002229D0002AAAAAAAA = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskIdentity.swift; sourceTree = "<group>"; };
 		B1000002229D0002AAAAAAAA = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunner.swift; sourceTree = "<group>"; };
 		A1000002229D0002AAAAAAAA /* jRamDiskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = jRamDiskApp.swift; sourceTree = "<group>"; };
 		A1000004229D0004AAAAAAAA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -43,6 +47,8 @@
 				A1000004229D0004AAAAAAAA /* ContentView.swift */,
 				A1000006229D0006AAAAAAAA /* RamDiskManager.swift */,
 				B1000002229D0002AAAAAAAA /* CommandRunner.swift */,
+				C1000002229D0002AAAAAAAA /* DiskIdentity.swift */,
+				D1000002229D0002AAAAAAAA /* DiskEvents.swift */,
 				A1000007229D0007AAAAAAAA /* Info.plist */,
 				A100000B229D000BAAAAAAAA /* Products */,
 			);
@@ -129,6 +135,8 @@
 				A1000003229D0003AAAAAAAA /* ContentView.swift in Sources */,
 				A1000005229D0005AAAAAAAA /* RamDiskManager.swift in Sources */,
 				B1000001229D0001AAAAAAAA /* CommandRunner.swift in Sources */,
+				C1000001229D0001AAAAAAAA /* DiskIdentity.swift in Sources */,
+				D1000001229D0001AAAAAAAA /* DiskEvents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
