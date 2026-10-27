@@ -386,29 +386,11 @@ class RamDiskManager: ObservableObject {
     }
     
     private func runCommand(_ command: String, arguments: [String]) async -> String? {
-        return await withCheckedContinuation { continuation in
-            let process = Process()
-            let pipe = Pipe()
-            
-            process.executableURL = URL(fileURLWithPath: command)
-            process.arguments = arguments
-            process.standardOutput = pipe
-            process.standardError = pipe
-            
-            do {
-                try process.run()
-                process.waitUntilExit()
-                
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8)
-                if process.terminationStatus == 0 {
-                    continuation.resume(returning: output)
-                } else {
-                    continuation.resume(returning: nil)
-                }
-            } catch {
-                continuation.resume(returning: nil)
-            }
+        do {
+            return try await CommandRunner().run(command, arguments).output
+        } catch {
+            await MainActor.run { self.errorMessage = error.localizedDescription }
+            return nil
         }
     }
 }
