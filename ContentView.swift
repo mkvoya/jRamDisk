@@ -279,7 +279,7 @@ struct AutoCreateRowView: View {
             HStack(spacing: 8) {
                 Button(action: {
                     Task {
-                        await ramDiskManager.createRamDisk(name: config.name, sizeMB: config.sizeMB)
+                        _ = await ramDiskManager.createRamDisk(name: config.name, sizeMB: config.sizeMB)
                     }
                 }) {
                     Image(systemName: "play.fill")
@@ -288,6 +288,7 @@ struct AutoCreateRowView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Create now")
+                .disabled(ramDiskManager.isLoading)
                 
                 Button(action: {
                     ramDiskManager.removeAutoCreateConfig(name: config.name)
@@ -322,7 +323,6 @@ struct AutoCreateRowView: View {
 struct RamDiskRowView: View {
     @EnvironmentObject var ramDiskManager: RamDiskManager
     let ramDisk: RamDisk
-    @State private var showDeleteConfirmation = false
     @State private var isHovering = false
     
     private var isAutoCreate: Bool {
@@ -402,13 +402,14 @@ struct RamDiskRowView: View {
                 .help("Open in Finder")
                 .disabled(ramDisk.mountPoint.isEmpty)
                 
-                Button(action: { showDeleteConfirmation = true }) {
+                Button(action: { Task { await ramDiskManager.requestEject(ramDisk) } }) {
                     Image(systemName: "eject.fill")
                         .font(.title3)
                         .foregroundColor(.orange)
                 }
                 .buttonStyle(.borderless)
                 .help("Eject RAM Disk")
+                .disabled(ramDiskManager.isLoading)
             }
         }
         .padding()
@@ -426,16 +427,7 @@ struct RamDiskRowView: View {
         .onHover { hovering in
             isHovering = hovering
         }
-        .alert("Eject RAM Disk?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Eject", role: .destructive) {
-                Task {
-                    await ramDiskManager.removeRamDisk(ramDisk)
-                }
-            }
-        } message: {
-            Text("Are you sure you want to eject '\(ramDisk.volumeName)'?\n\nAll data on this RAM disk will be permanently lost.")
-        }
+
     }
     
     private func openInFinder() {
@@ -604,6 +596,12 @@ struct CreateRamDiskSheet: View {
             
             // Form
             VStack(spacing: 24) {
+                if let error = ramDiskManager.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                }
                 // Name field
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Volume Name")
@@ -655,7 +653,13 @@ struct CreateRamDiskSheet: View {
                         }
                     }
                     
-                    Text("Recommended: 512 MB - 2 GB for most use cases")
+                    Text("Managed RAM disks: \(ramDiskManager.allocatedMB) MB · Physical memory: \(ramDiskManager.physicalMemoryMB) MB")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("After creation: \(ramDiskManager.allocatedMB + selectedSizeMB) / \(ramDiskManager.allocationLimitMB) MB limit (50% of RAM)")
+                        .font(.caption)
+                        .foregroundColor(ramDiskManager.allocatedMB + selectedSizeMB > ramDiskManager.allocationLimitMB ? .red : .secondary)
+                    Text("Memory pressure can increase SSD swap writes. Leave room for your apps.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -711,7 +715,7 @@ struct CreateRamDiskSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(diskName.trimmingCharacters(in: .whitespaces).isEmpty || ramDiskManager.isLoading)
+                .disabled((try? RamDiskManager.validatedName(diskName, sizeMB: selectedSizeMB)) == nil || ramDiskManager.isLoading || ramDiskManager.allocatedMB + selectedSizeMB > ramDiskManager.allocationLimitMB)
             }
             .padding()
         }
@@ -743,6 +747,6 @@ struct CreateRamDiskSheet: View {
 
 #Preview {
     ContentView()
-        .environmentObject(RamDiskManager())
+        .environmentObject(RamDiskManager(startAutomatically: false))
         .frame(width: 550, height: 500)
 }

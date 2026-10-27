@@ -38,11 +38,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     nonisolated func applicationDidFinishLaunching(_ notification: Notification) {
         // 隐藏 Dock 图标，仅保留菜单栏
-        NSApplication.shared.setActivationPolicy(.accessory)
 
         // 尽早创建 status item：用 DispatchQueue.main.async 确保在 main run loop 下一轮立即执行，
         // 避免与 SwiftUI 首帧竞争导致菜单栏图标不显示
         DispatchQueue.main.async { [weak self] in
+            NSApplication.shared.setActivationPolicy(.accessory)
             self?.setupStatusBar()
         }
     }
@@ -67,6 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         statusMenu = NSMenu()
+        statusMenu?.autoenablesItems = false
         statusMenu?.delegate = self
         statusItem?.menu = statusMenu
         rebuildMenu()
@@ -92,12 +93,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             noDisksItem.isEnabled = false
             statusMenu.addItem(noDisksItem)
         } else {
-            for (index, disk) in ramDisks.enumerated() {
+            for disk in ramDisks {
                 let diskMenu = NSMenu()
+                diskMenu.autoenablesItems = false
                 
                 let openItem = NSMenuItem(title: "Open in Finder", action: #selector(openInFinder(_:)), keyEquivalent: "")
                 openItem.target = self
-                openItem.tag = index
+                openItem.representedObject = disk
                 openItem.isEnabled = !disk.mountPoint.isEmpty
                 diskMenu.addItem(openItem)
                 
@@ -105,7 +107,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 
                 let ejectItem = NSMenuItem(title: "Eject", action: #selector(ejectDisk(_:)), keyEquivalent: "")
                 ejectItem.target = self
-                ejectItem.tag = index
+                ejectItem.representedObject = disk
+                ejectItem.isEnabled = !sharedRamDiskManager.isLoading
                 diskMenu.addItem(ejectItem)
                 
                 let diskItem = NSMenuItem(title: "\(disk.volumeName) - \(disk.formattedSize)", action: nil, keyEquivalent: "")
@@ -119,12 +122,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Quick Create submenu
         let quickCreateMenu = NSMenu()
+        quickCreateMenu.autoenablesItems = false
         
         let sizes = [(512, "512 MB"), (1024, "1 GB"), (2048, "2 GB"), (4096, "4 GB")]
         for (size, label) in sizes {
             let item = NSMenuItem(title: "\(label) RAM Disk", action: #selector(quickCreate(_:)), keyEquivalent: "")
             item.target = self
             item.tag = size
+            item.isEnabled = !sharedRamDiskManager.isLoading
             quickCreateMenu.addItem(item)
         }
         
@@ -164,22 +169,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func openInFinder(_ sender: NSMenuItem) {
-        let index = sender.tag
-        let ramDisks = sharedRamDiskManager.ramDisks
-        guard index < ramDisks.count else { return }
-        let path = ramDisks[index].mountPoint
+        guard let selected = sender.representedObject as? RamDisk,
+              let disk = sharedRamDiskManager.ramDisks.first(where: { $0.id == selected.id }) else { return }
+        let path = disk.mountPoint
         if !path.isEmpty {
             NSWorkspace.shared.open(URL(fileURLWithPath: path))
         }
     }
     
     @objc func ejectDisk(_ sender: NSMenuItem) {
-        let index = sender.tag
-        let ramDisks = sharedRamDiskManager.ramDisks
-        guard index < ramDisks.count else { return }
-        let disk = ramDisks[index]
+        guard let disk = sender.representedObject as? RamDisk else { return }
         Task {
-            await sharedRamDiskManager.removeRamDisk(disk)
+            await sharedRamDiskManager.requestEject(disk)
             self.rebuildMenu()
         }
     }
@@ -187,8 +188,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func quickCreate(_ sender: NSMenuItem) {
         let sizeMB = sender.tag
         Task {
-            await sharedRamDiskManager.createRamDisk(name: "RamDisk", sizeMB: sizeMB)
+            let created = await sharedRamDiskManager.createRamDisk(name: "RamDisk", sizeMB: sizeMB, chooseUniqueName: true)
             self.rebuildMenu()
+            if !created {
+                let alert = NSAlert()
+                alert.messageText = "Could not create RAM disk"
+                alert.informativeText = sharedRamDiskManager.errorMessage ?? "Creation failed."
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
         }
     }
     
