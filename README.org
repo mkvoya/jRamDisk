@@ -9,6 +9,9 @@ A macOS app for managing RAM disks, mimicing iRamDisk.app
 - Auto-create RAM disks at login
 - Launch at login support
 - Open RAM disks in Finder
+- Verified disk ownership, stable disk identities, and serialized create/eject operations
+- Explicit confirmation for eject and a separate confirmation for force eject
+- Event-driven refresh and memory allocation limits
 - Vibe coded and open-sourced!
 
 ** Requirements
@@ -45,8 +48,9 @@ The workflow uses macOS 15 and Xcode 16.4 with a shared =jRamDisk= scheme.
 Download the artifact from a successful run under GitHub → Actions → macOS Build.
 No signing secrets are required. These builds are ad-hoc signed, not Developer ID
 signed or notarized; Gatekeeper may block downloaded builds. Tag builds produce
-artifacts only, not GitHub Releases. CI currently checks compilation and packaging;
-there is no automated test target or RAM disk runtime test yet.
+artifacts only, not GitHub Releases. CI runs the command execution and disk lifecycle
+regression tests before compiling and packaging. CI tests use simulated disk responses;
+the real disk smoke test is opt-in.
 
 To reproduce the universal build locally:
 
@@ -56,6 +60,53 @@ xcodebuild build -project jRamDisk.xcodeproj -scheme jRamDisk \
   -derivedDataPath build/DerivedData ARCHS='arm64 x86_64' \
   ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=
 #+end_src
+
+** Safety and upgrading
+
+- New disks are tracked using the current boot-session UUID, the live I/O Registry
+  media ID, and the APFS volume UUID. Device identity is checked again before eject.
+  Reused =diskN= numbers alone never authorize a disk operation.
+- Disks created by older versions, which only saved =diskN=, are not automatically
+  adopted. Their contents are untouched. Copy out any files you need, then eject
+  them using Disk Utility and recreate them in this version. Auto-create settings
+  are preserved; an existing volume with the same name blocks creation safely.
+- Single disks must be 64 MB–8 GB. The combined configured capacity of disks
+  managed by this version is limited to 50% of physical memory, including devices
+  whose failed creation could not be cleaned up. Other applications' allocations
+  are not included; this limit is not a guarantee against memory pressure or swap.
+- Both UI entry points confirm data loss before ejecting. If normal eject fails,
+  force eject requires a separate explicit confirmation. Failed identity checks
+  never offer force eject.
+- Command output is drained off the main thread, with a 60-second timeout,
+  cancellation, and a 4 MiB retained limit for each output stream. Errors retain
+  the executable, exit status and diagnostic output.
+- Disk Arbitration events are debounced for 300 ms; a 30-second timer provides a
+  fallback. Refreshes are coalesced, stale results are discarded, and transient
+  query errors preserve the last known disk list. No disk-list polling occurs
+  when there are no managed disks.
+
+** Tests
+
+Run non-destructive regression tests (no RAM disks are created):
+
+#+begin_src sh
+bash scripts/test.sh
+#+end_src
+
+Tests cover large command output, nonzero exit status, timeout, cancellation,
+device-number reuse, changed volume UUIDs, stable identity, transient query errors,
+formatting/cleanup failures, name validation, serialized creation and memory limits.
+
+To additionally create one uniquely named 64 MB test disk, rediscover it with a new
+manager instance, and safely eject it, run the opt-in smoke test:
+
+#+begin_src sh
+JRAMDISK_RUN_DISK_TESTS=1 bash scripts/test.sh
+#+end_src
+
+The smoke test uses isolated preferences and never adopts existing disks. It
+requires access to macOS disk services. If cleanup fails, inspect the reported
+test disk in Disk Utility; its isolated ownership preferences are retained.
 
 ** License
 

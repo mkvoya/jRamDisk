@@ -34,6 +34,9 @@ jobs:
       - name: Show toolchain
         run: xcodebuild -version
 
+      - name: Run safety regression tests
+        run: bash scripts/test.sh
+
       - name: Build Release for Apple Silicon and Intel
         run: |
           set -euo pipefail
