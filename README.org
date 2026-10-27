@@ -20,6 +20,8 @@ A macOS app for managing RAM disks, mimicing iRamDisk.app
 
 ** Usage
 
+Download the DMG from [[https://github.com/mkvoya/jRamDisk/releases][GitHub Releases]], open it, and drag jRamDisk into Applications.
+
 1. Click "New RAM Disk" to create a RAM disk
 2. Set name and size, optionally enable "Create at Login"
 3. Click the clock icon on existing disks to toggle auto-create
@@ -51,6 +53,32 @@ signed or notarized; Gatekeeper may block downloaded builds. Tag builds produce
 artifacts only, not GitHub Releases. CI runs the command execution and disk lifecycle
 regression tests before compiling and packaging. CI tests use simulated disk responses;
 the real disk smoke test is opt-in.
+
+** Publishing a release
+
+Push a version tag to automatically build, test, and publish a GitHub Release:
+
+#+begin_src sh
+# Update MARKETING_VERSION in the Xcode project before tagging a new version.
+git tag -a v1.3.0 -m "Release v1.3.0"
+git push origin v1.3.0
+#+end_src
+
+The release job runs only for =v*= tags after the build job succeeds. It downloads
+that run's verified artifact, checks its SHA-256 checksum, and attaches both
+=jRamDisk-macOS-Universal.dmg= and its =.sha256= file to the matching release.
+Release notes include installation information and automatically generated changes.
+Tags containing a hyphen (for example =v1.3.0-beta.1=) create prereleases.
+
+The release stays a draft until both assets finish uploading. Reruns resume drafts;
+already published releases with both assets are left unchanged. An existing published
+release missing either asset fails the job instead of silently replacing public files.
+Use a new version tag when changing published binaries. Manual workflow runs on a
+=v*= tag can also publish it; branch and pull-request builds never publish releases.
+
+Only the release job receives =contents: write=. The built-in =GITHUB_TOKEN= is used;
+no personal access token or extra repository secrets are needed. These downloads
+remain ad-hoc signed and unnotarized, so Gatekeeper may block them.
 
 To reproduce the universal build locally:
 

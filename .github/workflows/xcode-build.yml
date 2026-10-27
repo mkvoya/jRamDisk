@@ -98,3 +98,64 @@ jobs:
             build/Build.xcresult
           if-no-files-found: warn
           retention-days: 7
+
+  release:
+    name: Publish tagged release
+    needs: build
+    if: github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified build
+        uses: actions/download-artifact@v4
+        with:
+          name: jRamDisk-macOS-Universal
+          path: dist
+
+      - name: Publish DMG and checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          dmg='jRamDisk-macOS-Universal.dmg'
+          checksum="${dmg}.sha256"
+          test -s "$dmg"
+          test -s "$checksum"
+          sha256sum --check "$checksum"
+
+          # Resume interrupted drafts, but never replace a published release.
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft'); then
+            if [[ "$draft" == 'false' ]]; then
+              assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+              grep -Fxq "$dmg" <<< "$assets"
+              grep -Fxq "$checksum" <<< "$assets"
+              echo "Release $RELEASE_TAG already contains both assets; nothing to publish."
+              exit 0
+            fi
+          else
+            notes="$RUNNER_TEMP/release-notes.txt"
+            cat > "$notes" <<'EOF'
+          Download `jRamDisk-macOS-Universal.dmg` below. Supports Apple Silicon and Intel Macs running macOS 13 or later.
+
+          Open the DMG and drag jRamDisk into Applications. The accompanying `.sha256` file can be used to verify the download.
+
+          This build is ad-hoc signed, not Developer ID signed or notarized; macOS Gatekeeper may block it.
+
+          Upgrade note: disks created by older versions are not automatically adopted. Their data is untouched. Save any needed files before ejecting them in Disk Utility and recreating them in this version.
+          EOF
+            prerelease=false
+            if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "jRamDisk $RELEASE_TAG" --generate-notes --notes-file "$notes" \
+              --prerelease="$prerelease"
+          fi
+
+          gh release upload "$RELEASE_TAG" "$dmg" "$checksum" --clobber
+          # Publish only after both assets have uploaded successfully.
+          gh release edit "$RELEASE_TAG" --draft=false
